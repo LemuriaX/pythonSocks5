@@ -2,6 +2,7 @@ import socket
 import struct
 import threading
 
+
 # 字符,C 类型,Python 类型,标准大小 (字节)
 # b / B,char / unsigned char,int,1
 # h / H,short / unsigned short,int,2
@@ -43,12 +44,67 @@ def handle_request(client_socket):
     return addr, port
 
 
+def connect_target(client_socket, addr, port):
+    try:
+        remote = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        remote.connect((addr, port))
+        data = struct.pack("!BBBBIH", 5, 0, 0, 1, 0, 0)
+        client_socket.sendall(data)
+        return remote
+    except Exception as e:
+        print(f"[-] Connection to target {addr}:{port} failed: {e}")
+        data = struct.pack("!BBBBIH", 5, 1, 0, 1, 0, 0)
+        client_socket.sendall(data)
+        return None
+
+def hexdump(data, length=16):
+    filter = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
+    lines = []
+    for c in range(0, len(data), length):
+        chars = data[c:c+length]
+        hex = ' '.join(["%02x" % x for x in chars])
+        printable = ''.join(["%s" % ((x <= 127 and filter[x]) or '.') for x in chars])
+        lines.append("%04x  %-*s  %s" % (c, length*3, hex, printable))
+    print('\n'.join(lines))
+
+
+def forward(client_socks, remote):
+    while True:
+        try:
+            data = client_socks.recv(4096)
+            hexdump(data)
+            if not data:
+                break
+            remote.sendall(data)
+        except ConnectionAbortedError:
+            break
+    client_socks.close()
+    remote.close()
+
+
+def start_pipe(client_socket, remote):
+    t1 = threading.Thread(target=forward, args=(client_socket, remote))
+    t2 = threading.Thread(target=forward, args=(remote, client_socket))
+    t1.start()
+    t2.start()
+
 def handle_client(client_socket):
-    with client_socket:
+    remote = None
+    try:
         if not handle_handshake(client_socket):
             print("[-] Connection failed - Handshake failed")
             return
-        handle_request(client_socket)
+        addr, port = handle_request(client_socket)
+        remote = connect_target(client_socket, addr, port)
+        if remote:
+            start_pipe(client_socket, remote)
+        client_socket = None
+        remote = None
+    finally:
+        if client_socket is not None:
+            client_socket.close()
+        if remote is not None:
+            remote.close()
 
 def main():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
