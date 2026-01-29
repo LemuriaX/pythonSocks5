@@ -2,7 +2,6 @@ import json
 import socket
 import struct
 import threading
-from http.client import responses
 
 # 字符,C 类型,Python 类型,标准大小 (字节)
 # b / B,char / unsigned char,int,1
@@ -16,7 +15,7 @@ from http.client import responses
 config = json.load(open('local_config.json', 'r'))
 
 
-def hexdump(self, data, length=16):
+def hexdump(data, length=16):
     filter = ''.join([(len(repr(chr(x))) == 3) and chr(x) or '.' for x in range(256)])
     lines = []
     for c in range(0, len(data), length):
@@ -94,6 +93,7 @@ def forward(local_socket, remote_socket):
     local_socket.close()
     remote_socket.close()
 
+
 # 转发目标地址和端口到远程服务器
 def forward_target_addr_port_remote(local_socket, remote_socket):
     ver, cmd, rsv, atyp, addr, port = get_target_addr_port(local_socket)
@@ -105,13 +105,26 @@ def forward_target_addr_port_remote(local_socket, remote_socket):
         remote_socket.sendall(addr.encode())
     remote_socket.sendall(struct.pack("!H", port))
 
+
 # 启动管道
 def start_pipe(local_socket, remote_socket):
     forward_target_addr_port_remote(local_socket, remote_socket)
+    # 服务器连接响应
+    data = remote_socket.recv(10)
+    _, connect_state, _, _, _, _ = struct.unpack("!BBBBIH", data)
+    if connect_state != 0:
+        # 远程服务器连接目标失败
+        print("[-] Remote server Connection to target failed")
+        data = struct.pack("!BBBBIH", 5, 1, 0, 1, 0, 0)
+        local_socket.sendall(data)
+        return
+    data = struct.pack("!BBBBIH", 5, 0, 0, 1, 0, 0)
+    local_socket.sendall(data)
     t1 = threading.Thread(target=forward, args=(local_socket, remote_socket))
     t2 = threading.Thread(target=forward, args=(remote_socket, local_socket))
     t1.start()
     t2.start()
+
 
 # 入口
 def client_run(local_socket):
