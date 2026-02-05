@@ -57,9 +57,11 @@ def handle_request(client_socket):
         data = client_socket.recv(4)
         addr = socket.inet_ntoa(data)
     elif atyp == 3:  # Domain name
-        data = client_socket.recv(1)
-        addr_len = ord(data)
-        addr = client_socket.recv(addr_len).decode()
+        header = client_socket.recv(2)
+        length = struct.unpack('!H', header)[0]
+        nonce = client_socket.recv(12)
+        ciphertext = client_socket.recv(length - 12)
+        addr = gcm_cipher.decrypt_packet(nonce + ciphertext).decode()
     port_data = client_socket.recv(2)
     port = struct.unpack('!H', port_data)[0]
     print(f"[+] Request: CMD={cmd}, ADDR={addr}, PORT={port}")
@@ -124,6 +126,8 @@ def remote_forward(remote_socket, local_socket):
                 print(f"[-] Decryption failed: {e}")
                 break
         except ConnectionAbortedError:
+            break
+        except ConnectionResetError:
             break
     local_socket.close()
     remote_socket.close()

@@ -130,8 +130,8 @@ def forward_target_addr_port_remote(local_socket, remote_socket):
     if atyp == 1:  # IPv4
         remote_socket.sendall(socket.inet_aton(addr))
     elif atyp == 3:  # Domain name
-        remote_socket.sendall(struct.pack("!B", len(addr)))
-        remote_socket.sendall(addr.encode())
+        header, nonce, ciphertext = gcm_cipher.encrypt_packet(addr.encode())
+        remote_socket.sendall(header + nonce + ciphertext)
     remote_socket.sendall(struct.pack("!H", port))
 
 
